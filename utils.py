@@ -572,6 +572,64 @@ def learning_net(n_input, n_hidden_neurons, n_output, n_epochs, X_tr, Y_tr, X_cv
     return nnet1, mse_train, accuracy_train, mse_cv, accuracy_cv, end_lrn-start_lrn
 
 
+def build_color_abstraction(X, len_sequences, nnet):
+    probab_ist, _ = nnet.forward(X)
+    predicted_ist = torch.argmax(probab_ist, dim=1).type(torch.FloatTensor)
+
+    out_traces, x_traces = [], []
+    idx_so_far = 0
+    for l in range(len(len_sequences)):
+        out_traces += [predicted_ist[idx_so_far:idx_so_far + len_sequences[l]]]
+        x_traces += [X[idx_so_far:idx_so_far + len_sequences[l]]]
+        idx_so_far += len_sequences[l]
+
+    n_output = nnet.fc3.out_features
+    adj_matrix = np.zeros((n_output, n_output))
+
+    for idx in range(predicted_ist.shape[0] - 1):
+        start, targt = int(predicted_ist[idx].item()), int(predicted_ist[idx + 1].item())
+        adj_matrix[start, targt] = 1
+    norms = np.sum(adj_matrix, axis=1)
+    # fix zeros in norms, replace with 1
+    idxs_zeros = np.where(norms == 0)
+    norms[idxs_zeros] = 1.
+    adj_matrix[idxs_zeros, idxs_zeros] = 1.
+
+    parts_samples = predicted_ist
+
+    return adj_matrix, out_traces, parts_samples
+
+
+def compute_aist_from_color_adj(aist_series, out_traces, parts_samples,
+                                n_output,
+                                selected_trace, len_sequences,
+                                adj_matrix, label):
+
+
+    corresponding_x_idx = sum(len_sequences[:selected_trace])
+    print('-' * 80)
+    print(f'(True) ' + label + f' AIST: {aist_series[selected_trace]}')
+    print(f'(Estim) ' + label + f' AIST: {out_traces[selected_trace].mean()}')
+    # first_x0 = X_tensor[selected_trace, :]
+    first_part = int(parts_samples[corresponding_x_idx].item())
+
+    pi = np.zeros((1, n_output))
+    pi[0, first_part] = 1.
+
+    aist_trsys = 0.
+    for i in range(len_sequences[selected_trace]):
+        # compute aist_bounds
+        aist_trsys += np.sum([i * pi[0, i] for i in range(pi.shape[1])])
+
+        pi = pi @ adj_matrix
+        pi = pi / np.sum(pi)
+    # print(f'Computed pi: {pi}')
+
+    aist_trsys = aist_trsys / len_sequences[selected_trace]
+
+    print(f'AIST from transys: {aist_trsys}')
+
+
 def build_ss_abstraction(n_parts, X, nnet, allX, len_sequences):
     """
 
@@ -582,7 +640,6 @@ def build_ss_abstraction(n_parts, X, nnet, allX, len_sequences):
     :param len_sequences:
     :return:
     """
-
 
     lb = my_floor(np.min(X, axis=0), precision=1)
     ub = my_ceil(np.max(X, axis=0), precision=1) + 0.1
