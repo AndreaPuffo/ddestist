@@ -1,0 +1,11 @@
+pymc3
+torch
+numpy
+scipy
+seaborn
+sklearn
+pandas
+theano
+matplotlib
+n-sphere
+sortedcontainers
